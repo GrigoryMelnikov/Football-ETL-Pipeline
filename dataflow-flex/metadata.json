@@ -1,0 +1,30 @@
+{
+    "name": "Unified Football Data Pipeline",
+    "description": "A pipeline that reads from Pub/Sub, processes football data from GCS, and writes to a unified BigQuery table.",
+    "parameters": [
+        {
+            "name": "input_files",
+            "label": "Input file paths",
+            "helpText": "Secrialized List of GCS file paths containing football data. ['gs://bucket/{api_name}/season_{season}/league_{league_id}/{endpoint}/{run_id}_{timestamp}.json', ...]",
+            "isOptional": false
+        },
+        {
+            "name": "api_name",
+            "label": "API Name",
+            "helpText": "Name of the API (e.g., 'apifootball', 'apisports')",
+            "isOptional": false
+        },
+        {
+            "name": "output_table",
+            "label": "BigQuery output table",
+            "helpText": "BigQuery table for successful records (e.g., project:dataset.table).",
+            "isOptional": false
+        },
+        {
+            "name": "schema_path",
+            "label": "Path to Unified Schema file",
+            "helpText": "The path to the JSON schema file.",
+            "isOptional": false
+        }
+    ]
+}
