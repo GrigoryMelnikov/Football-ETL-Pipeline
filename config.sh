@@ -5,6 +5,7 @@
 # Project / region
 export PROJECT_ID=$(gcloud config get-value project)
 export REGION="us-central1" # Cheapest region as of jul-25
+export GS_BUCKET="gs://${BUCKET_NAME}"
 
 # Storage
 export BUCKET_NAME="${PROJECT_ID}-football-stage"
@@ -27,9 +28,23 @@ export SUCCESS_TOPIC_APISPORTS="ingest_apisports_success"
 
 # Cloud Function runtime and schedules
 export FUNCTION_RUNTIME="python312"
-export SCHEDULE_APIFOOTBALL="0 1 * * *"
-export SCHEDULE_APISPORTS="0 1 * * *"
+export SCHEDULE_APIFOOTBALL="40 10 * * *"
+export SCHEDULE_APISPORTS="40 10 * * *"
 
 # Cloud Function arguments 
 export APISPORTS_LEAGUE_IDS='[40]'
 export APIFOOTBALL_LEAGUE_IDS='[153]'
+
+# BigQuery dataset and table names
+export BQ_DATASET="football"
+export BQ_TABLE_PREFIX="teams"
+
+# Dataflow locations
+export DATAFLOW_LOCATION = "gs://${BUCKET_NAME}/dataflow"
+export DATAFLOW_TEMP_LOCATION="gs://${DATAFLOW_LOCATION}/temp"
+export DATAFLOW_STAGING_LOCATION="gs://${DATAFLOW_LOCATION}/staging"
+
+# Dataflow template parameters
+export TEMPLATE_NAME="football-unified-pipeline"
+export TEMPLATE_IMAGE="gcr.io/${PROJECT_ID}/dataflow/${TEMPLATE_NAME}:latest"
+export TEMPLATE_PATH="${DATAFLOW_LOCATION}/templates/${TEMPLATE_NAME}.json"
