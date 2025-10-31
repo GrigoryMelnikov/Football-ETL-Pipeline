@@ -23,8 +23,6 @@ export SA_DATAFLOW_EMAIL="${SA_DATAFLOW_NAME}@${PROJECT_ID}.iam.gserviceaccount.
 # Pub/Sub topics
 export TRIGGER_TOPIC_APIFOOTBALL="ingest_apifootball_trigger"
 export TRIGGER_TOPIC_APISPORTS="ingest_apisports_trigger"
-export SUCCESS_TOPIC_APIFOOTBALL="ingest_apifootball_success"
-export SUCCESS_TOPIC_APISPORTS="ingest_apisports_success"
 
 # Cloud Function runtime and schedules
 export FUNCTION_RUNTIME="python312"
@@ -39,12 +37,19 @@ export APIFOOTBALL_LEAGUE_IDS='[153]'
 export BQ_DATASET="football"
 export BQ_TABLE_PREFIX="teams"
 
+# Dataflow Secret ID
+export DATAFLOW_SECRET_ID="dataflow-launch-parameters"
+
 # Dataflow locations
-export DATAFLOW_LOCATION = "gs://${BUCKET_NAME}/dataflow"
-export DATAFLOW_TEMP_LOCATION="gs://${DATAFLOW_LOCATION}/temp"
-export DATAFLOW_STAGING_LOCATION="gs://${DATAFLOW_LOCATION}/staging"
+export DATAFLOW_LOCATION="gs://${BUCKET_NAME}/dataflow"
+export DATAFLOW_TEMP_LOCATION="${DATAFLOW_LOCATION}/temp"
+export DATAFLOW_STAGING_LOCATION="${DATAFLOW_LOCATION}/staging"
 
 # Dataflow template parameters
 export TEMPLATE_NAME="football-unified-pipeline"
 export TEMPLATE_IMAGE="gcr.io/${PROJECT_ID}/dataflow/${TEMPLATE_NAME}:latest"
 export TEMPLATE_PATH="${DATAFLOW_LOCATION}/templates/${TEMPLATE_NAME}.json"
+
+# Schema location
+export SCHEMA_JSON_FILE="v1"
+export SCHEMA_PATH="${DATAFLOW_LOCATION}/schemas/${SCHEMA_JSON_FILE}.json"

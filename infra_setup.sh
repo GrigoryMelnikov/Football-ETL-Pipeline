@@ -39,8 +39,8 @@ gcloud pubsub topics create "${TRIGGER_TOPIC_APISPORTS}" --project="${PROJECT_ID
 # --- Create Secret in Secret Manager ---
 gcloud secrets create apifootball-api-key --replication-policy="automatic" --quiet || echo "Secret apifootball-api-key already exists."
 gcloud secrets create apisports-api-key --replication-policy="automatic" --quiet || echo "Secret apisports-api-key already exists."
+gcloud secrets create "${DATAFLOW_SECRET_ID}" --replication-policy="automatic" --quiet|| echo "Secret ${DATAFLOW_SECRET_ID} already exists."
 
-source .env
 if [ -f .env ]; then
   source .env
   echo "Storing API keys and league IDs in Secret Manager (new versions)..."
@@ -87,13 +87,27 @@ gcloud secrets add-iam-policy-binding apisports-api-key \
   --member="serviceAccount:${SA_INGEST_EMAIL}" \
   --role="roles/secretmanager.secretAccessor" 
 
+gcloud secrets add-iam-policy-binding ${DATAFLOW_SECRET_ID} \
+  --project="${PROJECT_ID}" \
+  --member="serviceAccount:${SA_INGEST_EMAIL}" \
+  --role="roles/secretmanager.secretAccessor" 
+
 gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_INGEST_EMAIL}" \
   --role="roles/logging.logWriter"
 
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+  --member="serviceAccount:${SA_INGEST_EMAIL}" \
+  --role="roles/dataflow.developer"
+
 gcloud storage buckets add-iam-policy-binding ${GS_BUCKET_NAME} \
   --member="serviceAccount:${SA_INGEST_EMAIL}" \
   --role="roles/storage.objectUser"
+
+gcloud iam service-accounts add-iam-policy-binding "${SA_DATAFLOW_EMAIL}" \
+  --project="${PROJECT_ID}" \
+  --member="serviceAccount:${SA_INGEST_EMAIL}" \
+  --role="roles/iam.serviceAccountUser" 
 
 # SA_DATAFLOW_NAME
 echo "Granting permissions to Dataflow SA..."
@@ -128,6 +142,8 @@ gcloud iam service-accounts add-iam-policy-binding "${SA_DATAFLOW_EMAIL}" \
   --project="${PROJECT_ID}"
 
 echo "Building Dataflow Flex Template..."
+gcloud storage cp "unified_schemas/${SCHEMA_JSON_FILE}.json" "${SCHEMA_PATH}" --project="${PROJECT_ID}"
+
 cd ./dataflow-flex
 gcloud dataflow flex-template build "$TEMPLATE_PATH" \
   --image-gcr-path "${TEMPLATE_IMAGE}" \
@@ -141,7 +157,6 @@ gcloud dataflow flex-template build "$TEMPLATE_PATH" \
   --env "FLEX_TEMPLATE_PYTHON_SETUP_FILE=setup.py" \
   --env "FLEX_TEMPLATE_PYTHON_PY_FILE=main.py" \
   --project "$PROJECT_ID"
-
 cd ..
 
 echo "Infrastructure setup complete."

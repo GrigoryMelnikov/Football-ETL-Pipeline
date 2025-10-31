@@ -3,19 +3,43 @@
 # source central config (repo root)
 source "$(dirname "$0")/../config.sh"
 
-GS_BUCKET="gs://${BUCKET_NAME}"
-
 echo "Project: ${PROJECT_ID}"
 echo "Region: ${REGION}"
 echo "Bucket: ${GS_BUCKET}"
 echo "Scheduler Service Account: ${SA_SCHEDULER_EMAIL}"
 echo "Inject Service Account: ${SA_INGEST_EMAIL}"
 
+# --- Create/Update Dataflow Launch Parameters in Secret Manager ---
+echo "Upserting Dataflow launch parameters into Secret Manager..."
+
+# Construct the JSON payload using variables from config.sh
+SECRET_JSON=$(cat <<EOF
+{
+  "project_id": "${PROJECT_ID}",
+  "region": "${REGION}",
+  "template_name": "football-unified",
+  "template_path": "gs://${BUCKET_NAME}/dataflow/templates/football-unified-pipeline.json",
+  "bq_dataset": "${BQ_DATASET}",
+  "bq_table_prefix": "${BQ_TABLE_PREFIX}",
+  "schema_path": "gs://${BUCKET_NAME}/dataflow/schemas/v1.json",
+  "temp_location": "gs://${BUCKET_NAME}/dataflow/temp",
+  "staging_location": "gs://${BUCKET_NAME}/dataflow/staging",
+  "service_account_email": "${SA_DATAFLOW_EMAIL}"
+}
+EOF
+)
+
+echo "${SECRET_JSON}"
+
+# Add the new configuration as the latest version of the secret
+echo "${SECRET_JSON}" | gcloud secrets versions add "${DATAFLOW_SECRET_ID}" \
+  --project="${PROJECT_ID}" \
+  --data-file=- \
+  --quiet
+
 # Ensure required topics exist (idempotent)
 gcloud pubsub topics create "${TRIGGER_TOPIC_APIFOOTBALL}" --project="${PROJECT_ID}" 2>/dev/null || true
 gcloud pubsub topics create "${TRIGGER_TOPIC_APISPORTS}" --project="${PROJECT_ID}" 2>/dev/null || true
-gcloud pubsub topics create "${SUCCESS_TOPIC_APIFOOTBALL}" --project="${PROJECT_ID}" 2>/dev/null || true
-gcloud pubsub topics create "${SUCCESS_TOPIC_APISPORTS}" --project="${PROJECT_ID}" 2>/dev/null || true
 
 # Deploy ingest-apifootball Function
 echo "Deploying ingest_apifootball function..."
@@ -25,12 +49,13 @@ gcloud functions deploy ingest_apifootball \
   --entry-point ingest_apifootball \
   --region "${REGION}" \
   --service-account "${SA_INGEST_EMAIL}" \
-  --set-env-vars "GCP_PROJECT=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},PUBSUB_TOPIC_APIFOOTBALL=${SUCCESS_TOPIC_APIFOOTBALL},APIFOOTBALL_LEAGUE_IDS=${APIFOOTBALL_LEAGUE_IDS}" \
+  --set-env-vars "GCP_PROJECT=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},APIFOOTBALL_LEAGUE_IDS=${APIFOOTBALL_LEAGUE_IDS},DATAFLOW_SECRET_ID=${DATAFLOW_SECRET_ID}" \
   --source "$(dirname "$0")" \
+  --allow-unauthenticated \
   --quiet
 
 gcloud run services add-iam-policy-binding ingest-apifootball \
-  --member="serviceAccount:${SA_SCHEDULER_EMAIL}" \
+  --member="serviceAccount:${SA_INGEST_EMAIL}" \
   --role="roles/run.invoker" \
   --region="${REGION}"
 
@@ -42,12 +67,14 @@ gcloud functions deploy ingest_apisports \
   --entry-point ingest_apisports \
   --region "${REGION}" \
   --service-account "${SA_INGEST_EMAIL}" \
-  --set-env-vars "GCP_PROJECT=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},PUBSUB_TOPIC_APISPORTS=${SUCCESS_TOPIC_APISPORTS},APISPORTS_LEAGUE_IDS=${APISPORTS_LEAGUE_IDS}" \
+  --set-env-vars "GCP_PROJECT=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},APISPORTS_LEAGUE_IDS=${APISPORTS_LEAGUE_IDS},DATAFLOW_SECRET_ID=${DATAFLOW_SECRET_ID}" \
   --source "$(dirname "$0")" \
+  --allow-unauthenticated \
   --quiet
+  
 
 gcloud run services add-iam-policy-binding ingest-apisports \
-  --member="serviceAccount:${SA_SCHEDULER_EMAIL}" \
+  --member="serviceAccount:${SA_INGEST_EMAIL}" \
   --role="roles/run.invoker" \
   --region="${REGION}"
 
