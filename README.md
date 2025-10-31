@@ -80,17 +80,20 @@ Pipeline is designed with security at its core, adhering to the **Principle of L
 * **Scheduler Service Account (`sa-pipeline-scheduler`)**: This account is used exclusively by Cloud Scheduler. Its only permission is `pubsub.publisher`, allowing it to publish trigger messages. It cannot access secrets, storage, or data.  
 * **Ingestion Service Account (`sa-ingest-function`)**: This account is assigned to the Cloud Functions. It is granted a limited set of permissions to access specific secrets (`secretmanager.secretAccessor`), write to the GCS staging bucket (`storage.objectUser`), and launch Dataflow jobs (`dataflow.developer`).  
 * **Dataflow Service Account (`sa-dataflow-job`)**: This is the identity the Dataflow workers assume. Its permissions are scoped to read from the GCS staging bucket, read container images, and write data into BigQuery (`bigquery.dataEditor`, `bigquery.jobUser`).  
+
 This separation ensures that a compromise of one component (e.g., the scheduler) does not grant an attacker access to sensitive data or other parts of the pipeline.  
 All permissions are granted programmatically in the `infra_setup.sh` script, ensuring a repeatable and auditable security posture.  
 
 ### Error Handling and Logging 
   
 * **Ingestion (Cloud Functions)**: All operations within the Cloud Functions are logged as structured JSON to Google Cloud Logging. This provides clear, filterable logs for monitoring and debugging.  
+
 * **Transformation (Dataflow)**: The Dataflow pipeline includes a robust dead-letter mechanism. Any record that fails validation is automatically sent to a dead-letter location in GCS (`gs://<your-bucket>/dataflow/temp/dead_letter/`), ensuring data quality in BigQuery.  
 
 ### Bonus points clarifications
 This project is designed with the bonus tasks in mind and provides a strong foundation for implementing them.  
 1.  **Data-Monitoring Dashboard**: The pipeline already emits structured logs to Google Cloud Logging for every key stage (ingestion, API calls, errors, Dataflow job launch). These logs contain crucial metadata like API latency, record counts, and error reasons. This data can be directly used to build a monitoring dashboard in **Looker Studio** or **Cloud Monitoring** by creating log-based metrics and alerts, fulfilling this requirement with minimal additional code.  
+
 2.  **Schema Evolution**: While schema design explicitly includes a `schema_version` field in every record. The Dataflow pipeline can be easily extended to:  
     * Dynamically select the correct transformation logic based on the schema version. (see `pipelines.py` file). 
     * Maintain historical data by loading records into BigQuery tables partitioned by the `schema_version` field.  
@@ -119,7 +122,8 @@ Follow these instructions to set up and deploy the pipeline in your own Google C
     gcloud config set project YOUR_PROJECT_ID
     ```
 
-3.  **Create `.env` file**
+3.  **Create `.env` file** 
+
     Create a file named `.env` in the project's root directory and add your API keys. This file is used by `infra_setup.sh` to populate Secret Manager and is securely ignored by git.  
     ```
     # .env
@@ -127,7 +131,8 @@ Follow these instructions to set up and deploy the pipeline in your own Google C
     APISPORTS_KEY="your_api_sports_key_here"
     ```
 
-4.  **Review `config.sh`**
+4.  **Review `config.sh`** 
+
     Most variables in `config.sh` are derived automatically from your `gcloud` project configuration. You may review it to change the region, bucket name, or other settings.  
 
 ## How to Run the Pipeline
@@ -176,5 +181,6 @@ gcloud pubsub topics publish ingest_apisports_trigger --message "{\"leagues\":'[
 ## Error Handling and Logging
 
 * **Ingestion (Cloud Functions)**: All operations within the Cloud Functions are logged as structured JSON to Google Cloud Logging, providing clear, filterable logs. API clients have a built-in retry mechanism for transient errors. If an unrecoverable error occurs during file upload, a rollback function attempts to clean up any partially staged files in GCS to prevent orphaned data.  
+
 * **Transformation (Dataflow)**: The Dataflow pipeline includes a robust dead-letter mechanism. Any record that fails during processing (e.g., due to a schema validation error) is automatically sent to a dead-letter location in GCS (`gs://<your-bucket>/dataflow/temp/dead_letter/`). This ensures that the main pipeline is not blocked by a few bad records.
 
