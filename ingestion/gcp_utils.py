@@ -69,8 +69,8 @@ def startDataflowPipeline(api_name, uploaded_files):
         if not params_json:
             raise ValueError(f"Could not retrieve Dataflow parameters from secret: {cfg.DATAFLOW_SECRET_ID}")
         params = json.loads(params_json)
-        
-        uploaded_gs_files = [ f'{cfg.GS_BUCKET}/{file}' for file in uploaded_files]
+
+        uploaded_gs_files = [ f'gs://{cfg.BUCKET_NAME}/{file}' for file in uploaded_files]
 
         service = build('dataflow', 'v1b3', cache_discovery=False)
 
