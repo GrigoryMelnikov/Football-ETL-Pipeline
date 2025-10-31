@@ -20,7 +20,7 @@
     {"name": "form", "type": "STRING", "mode": "NULLABLE"},
     {"name": "venue_name", "type": "STRING", "mode": "NULLABLE"},
     {"name": "venue_city", "type": "STRING", "mode": "NULLABLE"},
-    {"name": "update_datetime", "type": "TTIMESTAMP", "mode": "NULLABLE", "default": "CURRENT_DATETIME()"},
+    {"name": "update_timestamp", "type": "TIMESTAMP", "mode": "NULLABLE", "default": "CURRENT_TIMESTAMP()"},
     {"name": "schema_version", "type": "STRING"}
   ]
 }
