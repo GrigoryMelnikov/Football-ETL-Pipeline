@@ -69,6 +69,8 @@ def startDataflowPipeline(api_name, uploaded_files):
         if not params_json:
             raise ValueError(f"Could not retrieve Dataflow parameters from secret: {cfg.DATAFLOW_SECRET_ID}")
         params = json.loads(params_json)
+        
+        uploaded_gs_files = [ f'{cfg.GS_BUCKET}/{file}' for file in uploaded_files]
 
         service = build('dataflow', 'v1b3', cache_discovery=False)
 
@@ -80,7 +82,7 @@ def startDataflowPipeline(api_name, uploaded_files):
                 'launchParameter': {
                     'jobName': f"{params['template_name']}-{api_name}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
                     'parameters': {
-                        'input_files': json.dumps(uploaded_files),
+                        'input_files': json.dumps(uploaded_gs_files),
                         'api_name': api_name,
                         'output_table': f"{params['project_id']}:{params['bq_dataset']}.{params['bq_table_prefix']}_{api_name}",
                         'schema_path': params['schema_path']

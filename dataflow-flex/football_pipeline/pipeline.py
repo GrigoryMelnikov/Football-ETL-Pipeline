@@ -50,7 +50,7 @@ def run_pipeline(options, input_files, api_name, output_table, schema_path):
                 table=output_table,
                 schema=helpers.bqSchemaFromJson(raw_schema),
                 create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
-                write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND
+                write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE
             )
         )
         # Dead-letter output stream for failed data
