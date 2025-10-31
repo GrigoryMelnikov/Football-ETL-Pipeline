@@ -51,7 +51,6 @@ gcloud functions deploy ingest_apifootball \
   --service-account "${SA_INGEST_EMAIL}" \
   --set-env-vars "GCP_PROJECT=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},APIFOOTBALL_LEAGUE_IDS=${APIFOOTBALL_LEAGUE_IDS},DATAFLOW_SECRET_ID=${DATAFLOW_SECRET_ID}" \
   --source "$(dirname "$0")" \
-  --allow-unauthenticated \
   --quiet
 
 gcloud run services add-iam-policy-binding ingest-apifootball \
@@ -69,7 +68,6 @@ gcloud functions deploy ingest_apisports \
   --service-account "${SA_INGEST_EMAIL}" \
   --set-env-vars "GCP_PROJECT=${PROJECT_ID},BUCKET_NAME=${BUCKET_NAME},APISPORTS_LEAGUE_IDS=${APISPORTS_LEAGUE_IDS},DATAFLOW_SECRET_ID=${DATAFLOW_SECRET_ID}" \
   --source "$(dirname "$0")" \
-  --allow-unauthenticated \
   --quiet
   
 
@@ -85,14 +83,14 @@ gcloud scheduler jobs delete ingest-apifootball-job --location="${REGION}" --qui
 gcloud scheduler jobs create pubsub ingest-apifootball-job \
   --schedule "${SCHEDULE_APIFOOTBALL}" \
   --topic "${TRIGGER_TOPIC_APIFOOTBALL}" \
-  --message-body "Run" \
+  --message-body "{\"leagues\": ${APIFOOTBALL_LEAGUE_IDS}}" \
   --location "${REGION}"
 
 gcloud scheduler jobs delete ingest-apisports-job --location="${REGION}" --quiet || true
 gcloud scheduler jobs create pubsub ingest-apisports-job \
   --schedule "${SCHEDULE_APISPORTS}" \
   --topic "${TRIGGER_TOPIC_APISPORTS}" \
-  --message-body "Run" \
+  --message-body "{\"leagues\": ${APISPORTS_LEAGUE_IDS}, \"season\": 2023}" \
   --location "${REGION}"
 
 echo "Deployment complete."

@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import base64
 from datetime import datetime, timezone
 from . import api_clients
 from . import gcp_utils
@@ -50,6 +51,26 @@ def rollback_uploaded_files(api_name, run_id, uploaded_files: list[str]):
             "files": uploaded_files,
         }, severity="CRITICAL")
 
+def parse_trigger_message(event: dict) -> dict:
+    """
+    Parses the incoming Pub/Sub message to extract arguments.
+    The message data is expected to be a base64-encoded JSON string.
+    """
+    if 'data' not in event or not event['data']:
+        return {}
+    try:
+        message_data = base64.b64decode(event['data']).decode('utf-8')
+        data = json.loads(message_data)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as e:
+        gcp_utils.log_struct({
+            "etl-stage": "injection",
+            "event": "parse_trigger_message_error",
+            "reason": "Malformed Pub/Sub message data",
+            "error": str(e)
+        }, severity="WARNING")
+        return {}
+
 # Generic fetch and store function
 def fetch_and_store(run_id, api_name, api_key, endpoint, league_ids, season=None) -> dict:
     uploaded_files = []
@@ -65,8 +86,7 @@ def fetch_and_store(run_id, api_name, api_key, endpoint, league_ids, season=None
                 dir_path = f"apifootball/season_{season}/league_{league_id}/{endpoint}"
             else:
                 params = {"league": league_id}
-                # params["season"] = season
-                params["season"] = '2023' # FREE TIER LIMITATION
+                params["season"] = '2023' 
                 data = api_clients.fetch_apisports_data(api_key, endpoint, params)
                 dir_path = f"apisports/season_{season}/league_{league_id}/{endpoint}"
             if not data:
@@ -116,14 +136,23 @@ def ingest_apifootball(event, context):
             "reason": "missing_api_key"
         }, severity="ERROR")
         return
+    
+    args = parse_trigger_message(event)
+    season = args.get('season')
+    if not season:
+        # If season is not in the message, fall back to the calculated value.
+        season = get_current_season() # FREE TIER LIMITATION
 
-    league_ids = get_league_ids("APIFOOTBALL_LEAGUE_IDS")
+
+    league_ids = args.get('leagues') 
     if league_ids is None:
         gcp_utils.log_struct({
             "etl-stage": "injection",
             "event": "no_league_provided", 
+            "api-source": api_name,
             "api-source": "apifootball", 
-            "reason": "invalid_league_ids_format"
+            "reason": "leagues_not_in_trigger_message",
+            "run_id": run_id,
         }, severity="ERROR")
         return
     
@@ -147,8 +176,6 @@ def ingest_apifootball(event, context):
 def ingest_apisports(event, context):
     run_id = str(uuid.uuid4())
     api_name = "apisports"
-    #TODO: fetch from args
-    season = get_current_season()
 
     api_key = gcp_utils.get_secret(PROJECT_ID, "apisports-api-key")
     if not api_key:
@@ -160,15 +187,25 @@ def ingest_apisports(event, context):
         }, severity="ERROR")
         return
 
-    league_ids = get_league_ids("APISPORTS_LEAGUE_IDS")
-    if league_ids is None:
+    args = parse_trigger_message(event)
+    season = args.get('season')
+    if not season:
+        # If season is not in the message, fall back to the calculated value.
+        # season = get_current_season()
+        season = '2023' # FREE TIER LIMITATION
+
+
+    league_ids = args.get('leagues')
+    if not league_ids:
         gcp_utils.log_struct({
             "etl-stage": "injection",
-            "event": "no_league_provided", 
-            "api-source": "apisports", 
-            "reason": "invalid_league_ids_format"
+            "event": "no_league_provided",
+            "api-source": api_name,
+            "reason": "leagues_not_in_trigger_message",
+            "run_id": run_id,
         }, severity="ERROR")
-        return
+        league_ids = get_league_ids("APISPORTS_LEAGUE_IDS")
+
     
     teams_response = fetch_and_store(run_id, api_name, api_key, "teams", league_ids, season)
 
