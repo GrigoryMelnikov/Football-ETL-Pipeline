@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "fields": [
+    {"name": "pk", "type": "STRING", "mode": "REQUIRED"},
+    {"name": "team_id", "type": "STRING" },
+    {"name": "team_name", "type": "STRING"},
+    {"name": "team_country", "type": "STRING"},
+    {"name": "league_id", "type": "STRING"},
+    {"name": "league_name", "type": "STRING"},
+    {"name": "season", "type": "INTEGER"},
+    {"name": "rank", "type": "INTEGER"},
+    {"name": "points", "type": "INTEGER"},
+    {"name": "games_played", "type": "INTEGER"},
+    {"name": "wins", "type": "INTEGER"},
+    {"name": "draws", "type": "INTEGER"},
+    {"name": "losses", "type": "INTEGER"},
+    {"name": "goals_for", "type": "INTEGER"},
+    {"name": "goals_against", "type": "INTEGER"},
+    {"name": "goal_difference", "type": "INTEGER"},
+    {"name": "form", "type": "STRING", "mode": "NULLABLE"},
+    {"name": "venue_name", "type": "STRING", "mode": "NULLABLE"},
+    {"name": "venue_city", "type": "STRING", "mode": "NULLABLE"},
+    {"name": "update_datetime", "type": "TTIMESTAMP", "mode": "NULLABLE", "default": "CURRENT_DATETIME()"},
+    {"name": "schema_version", "type": "STRING"}
+  ]
+}
