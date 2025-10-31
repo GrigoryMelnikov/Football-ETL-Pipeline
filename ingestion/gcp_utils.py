@@ -1,31 +1,18 @@
 import logging
 import json
+from datetime import datetime, timezone
+
 from google.cloud import storage
-from google.cloud import pubsub_v1
 from google.cloud import secretmanager
+from googleapiclient.discovery import build
 
-
-# try to initialize Cloud Logging client logger; fall back to stdlib
-try:
-    from google.cloud import logging as cloud_logging  # type: ignore
-    _cloud_logging_client = cloud_logging.Client()
-    CLOUD_LOGGER = _cloud_logging_client.logger("ingest")
-except Exception:
-    CLOUD_LOGGER = None
+from . import config as cfg
 
 def log_struct(payload: dict, severity: str = "INFO"):
     """
     Emit a structured log. Uses Cloud Logging logger when available,
     otherwise emits a JSON string on the stdlib logger.
     """
-    #TODO
-    # if CLOUD_LOGGER:
-    #     try:
-    #         CLOUD_LOGGER.log_struct(payload, severity=severity)
-    #         return
-    #     except Exception:
-    #         logging.warning("Cloud Logging emit failed; falling back to stdlib", exc_info=True)
-
     text = json.dumps(payload, default=str)
     lvl = getattr(logging, severity.upper(), logging.INFO)
     logging.log(lvl, text)
@@ -40,23 +27,6 @@ def get_secret(project_id: str, secret_id: str, version_id: str = "latest") -> s
     except Exception as e:
         logging.error(f"Failed to retrieve secret {secret_id}: {e}", exc_info=True)
         return None
-
-def publish_event(project_id: str, topic_name: str, payload: dict):
-    """Publish a JSON payload to the given Pub/Sub topic (projects/{PROJECT_ID}/topics/{topic})."""
-    if not project_id or not topic_name:
-        log_struct({"event": "publish_failed", "reason": "missing_project_or_topic", "topic": topic_name, "payload": payload}, severity="ERROR")
-        return
-
-    topic_path = f"projects/{project_id}/topics/{topic_name}"
-    try:
-        publisher = pubsub_v1.PublisherClient()
-        data = json.dumps(payload).encode("utf-8")
-        future = publisher.publish(topic_path, data)
-        message_id = future.result(timeout=10)
-        # log publish result as structured log (still a final-result style log)
-        log_struct({"event": "published", "topic": topic_path, "message_id": message_id, "payload": payload}, severity="INFO")
-    except Exception as e:
-        log_struct({"event": "publish_failed", "topic": topic_path, "error": str(e), "exception_type": type(e).__name__, "payload": payload}, severity="ERROR")
 
 
 def upload_to_gcs(bucket_name: str, destination_blob_name: str, data: str):
@@ -92,3 +62,45 @@ def remove_from_gcs(bucket_name, destination_blob_names: list[str]) -> bool:
     except Exception as e:
         # do not emit logs here to avoid noisy logs; caller will detect Exception and include error context if needed
         raise e
+
+def startDataflowPipeline(api_name, uploaded_files):
+    try:
+        params_json = get_secret(cfg.PROJECT_ID, cfg.DATAFLOW_SECRET_ID)
+        if not params_json:
+            raise ValueError(f"Could not retrieve Dataflow parameters from secret: {cfg.DATAFLOW_SECRET_ID}")
+        params = json.loads(params_json)
+
+        service = build('dataflow', 'v1b3', cache_discovery=False)
+
+        request = service.projects().locations().flexTemplates().launch(
+            projectId=cfg.PROJECT_ID,
+            location=cfg.REGION,
+            # gcsPath=cfg.TEMPLATE_PATH,
+            body={
+                'launchParameter': {
+                    'jobName': f"{params['template_name']}-{api_name}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+                    'parameters': {
+                        'input_files': json.dumps(uploaded_files),
+                        'api_name': api_name,
+                        'output_table': f"{params['project_id']}:{params['bq_dataset']}.{params['bq_table_prefix']}_{api_name}",
+                        'schema_path': params['schema_path']
+                    },
+                    'environment': {
+                        'tempLocation': params['temp_location'],
+                        'stagingLocation': params['staging_location'],
+                        'serviceAccountEmail': params['service_account_email'],
+                    },
+                    "containerSpecGcsPath":  params['template_path'],
+                }
+            },
+        )
+        response = request.execute()
+        log_struct({
+                "etl-stage": "injection",
+                "event": "Dataflow pipeline execution requested", 
+                "api-source": api_name, 
+            }, severity="INFO")
+    except Exception as e:
+        logging.error(f"Failed to launch Dataflow job. Error: {e}")
+        # Re-raise the exception so the caller can handle the failure.
+        raise

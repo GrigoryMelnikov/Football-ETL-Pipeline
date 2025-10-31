@@ -9,8 +9,6 @@ from . import config as cfg
 # --- Configuration ---
 PROJECT_ID = cfg.PROJECT_ID or os.environ.get("GCP_PROJECT")
 BUCKET_NAME = cfg.BUCKET_NAME or os.environ.get("BUCKET_NAME")
-PUBSUB_TOPIC_APIFOOTBALL = cfg.PUBSUB_TOPIC_APIFOOTBALL or os.environ.get("PUBSUB_TOPIC_APIFOOTBALL", None)
-PUBSUB_TOPIC_APISPORTS = cfg.PUBSUB_TOPIC_APISPORTS or os.environ.get("PUBSUB_TOPIC_APISPORTS", None)
 
 # --- Helpers ---
 def get_current_season() -> int:
@@ -36,22 +34,24 @@ def rollback_uploaded_files(api_name, run_id, uploaded_files: list[str]):
     try:
         gcp_utils.remove_from_gcs(BUCKET_NAME, uploaded_files)
         gcp_utils.log_struct({
+            "etl-stage": "injection",
             "event": "remove_uploaded_files",
-            "api": api_name,
+            "api-source": api_name,
             "reason": "cleanup_successful",
             "run_id": run_id,
         }, severity="INFO")
     except Exception as e:
         gcp_utils.log_struct({
+            "etl-stage": "injection",
             "event": "remove_uploaded_files",
-            "api": api_name,
+            "api-source": api_name,
             "reason": str(e),
             "run_id": run_id,
             "files": uploaded_files,
-        }, severity="ERROR")
+        }, severity="CRITICAL")
 
 # Generic fetch and store function
-def fetch_and_store(run_id, api_name, api_key, endpoint, league_ids, season=None) -> list[str] | None:
+def fetch_and_store(run_id, api_name, api_key, endpoint, league_ids, season=None) -> dict:
     uploaded_files = []
 
     for league_id in league_ids:
@@ -73,8 +73,9 @@ def fetch_and_store(run_id, api_name, api_key, endpoint, league_ids, season=None
                 raise Exception("No data returned")
         except Exception as e:
             gcp_utils.log_struct({
+                "etl-stage": "injection",
                 "event": "fecth_error",
-                "api": api_name,
+                "api-source": api_name,
                 "league_id": league_id,
                 "endpoint": endpoint,
                 "reason": str(e),
@@ -90,8 +91,9 @@ def fetch_and_store(run_id, api_name, api_key, endpoint, league_ids, season=None
             uploaded_files.append(file_name)
         except Exception as e:
             gcp_utils.log_struct({
+                "etl-stage": "injection",
                 "event": "store_error",
-                "api": api_name,
+                "api-source": api_name,
                 "league_id": league_id,
                 "endpoint": endpoint,
                 "reason": str(e),
@@ -107,38 +109,39 @@ def ingest_apifootball(event, context):
 
     api_key = gcp_utils.get_secret(PROJECT_ID, "apifootball-api-key")
     if not api_key:
-        gcp_utils.log_struct({"event": "no_api_key_found", "source": "apifootball", "success": False, "reason": "missing_api_key"}, severity="ERROR")
+        gcp_utils.log_struct({
+            "etl-stage": "injection",
+            "event": "no_api_key_found", 
+            "api-source": "apifootball", 
+            "reason": "missing_api_key"
+        }, severity="ERROR")
         return
 
     league_ids = get_league_ids("APIFOOTBALL_LEAGUE_IDS")
     if league_ids is None:
-        gcp_utils.log_struct({"event": "no_league_provided", "source": "apifootball", "success": False, "reason": "invalid_league_ids_format"}, severity="ERROR")
+        gcp_utils.log_struct({
+            "etl-stage": "injection",
+            "event": "no_league_provided", 
+            "api-source": "apifootball", 
+            "reason": "invalid_league_ids_format"
+        }, severity="ERROR")
         return
     
     teams_response = fetch_and_store(run_id, api_name, api_key, "get_teams", league_ids)
     if not teams_response['success']:
-        # If failed not even try
-        standings_response = {"success": False, "uploaded_files": []}
-    else:
-        standings_response = fetch_and_store(run_id, api_name, api_key, "get_standings", league_ids)
+        gcp_utils.rollback_uploaded_files(api_name, run_id, teams_response["uploaded_files"] + standings_response['uploaded_files'])
+        return
+    
+    standings_response = fetch_and_store(run_id, api_name, api_key, "get_standings", league_ids)
 
-    # both calls was successful
     if teams_response['success'] and standings_response['success']:
-        gcp_utils.publish_event(PROJECT_ID, PUBSUB_TOPIC_APIFOOTBALL, {
-            "event": "ingest_success",
-            "source": api_name,
-            "uploaded_files": teams_response["uploaded_files"] + standings_response['uploaded_files'],
-            "bucket": BUCKET_NAME,
-            "run_id": run_id,
-        })
+        gcp_utils.startDataflowPipeline(
+            api_name=api_name, 
+            uploaded_files=teams_response["uploaded_files"] + standings_response['uploaded_files']
+        )
     else:
-        try: 
-            gcp_utils.rollback_uploaded_files(api_name, run_id, teams_response["uploaded_files"] + standings_response['uploaded_files'])
-        except Exception:
-            # Rollback failed, cloud function should not trying to retry 
-            return
-        # Rollback succeeded, raise to trigger retry
-        raise Exception("Rollback succeded. Retrying ingestion...")
+        gcp_utils.rollback_uploaded_files(api_name, run_id, teams_response["uploaded_files"] + standings_response['uploaded_files'])
+        return
 
 # API-Sports ingestion function
 def ingest_apisports(event, context):
@@ -149,38 +152,40 @@ def ingest_apisports(event, context):
 
     api_key = gcp_utils.get_secret(PROJECT_ID, "apisports-api-key")
     if not api_key:
-        gcp_utils.log_struct({"event": "no_api_key_found", "source": "apisports", "success": False, "reason": "missing_api_key"}, severity="ERROR")
+        gcp_utils.log_struct({
+            "etl-stage": "injection",
+            "event": "no_api_key_found", 
+            "api-source": "apisports", 
+            "reason": "missing_api_key"
+        }, severity="ERROR")
         return
 
     league_ids = get_league_ids("APISPORTS_LEAGUE_IDS")
     if league_ids is None:
-        gcp_utils.log_struct({"event": "no_league_provided", "source": "apisports", "success": False, "reason": "invalid_league_ids_format"}, severity="ERROR")
+        gcp_utils.log_struct({
+            "etl-stage": "injection",
+            "event": "no_league_provided", 
+            "api-source": "apisports", 
+            "reason": "invalid_league_ids_format"
+        }, severity="ERROR")
         return
     
     teams_response = fetch_and_store(run_id, api_name, api_key, "teams", league_ids, season)
-    if not teams_response['success']:
-        # If failed not even try
-        standings_response = {"success": False, "uploaded_files": []}
-    else:
-        standings_response = fetch_and_store(run_id, api_name, api_key, "standings", league_ids, season)
 
-    # both calls was successful
-    if teams_response['success'] and standings_response and standings_response['success']:
-        gcp_utils.publish_event(PROJECT_ID, PUBSUB_TOPIC_APISPORTS, {
-            "event": "ingest_success",
-            "source": api_name,
-            "uploaded_files": teams_response["uploaded_files"] + standings_response['uploaded_files'],
-            "bucket": BUCKET_NAME,
-            "run_id": run_id,
-        })
+    if not teams_response['success']:
+        gcp_utils.rollback_uploaded_files(api_name, run_id, teams_response["uploaded_files"] + standings_response['uploaded_files'])
+        return
+    
+    standings_response = fetch_and_store(run_id, api_name, api_key, "standings", league_ids, season)
+
+    if teams_response['success'] and standings_response['success']:
+        gcp_utils.startDataflowPipeline(
+            api_name=api_name, 
+            uploaded_files=teams_response["uploaded_files"] + standings_response['uploaded_files']
+        )
     else:
-        try: 
-            gcp_utils.rollback_uploaded_files(api_name, run_id, teams_response["uploaded_files"] + standings_response['uploaded_files'])
-        except Exception:
-            # Rollback failed, cloud function should not trying to retry 
-            return
-        # Rollback succeeded, raise to trigger retry
-        raise Exception("Rollback succeded. Retrying ingestion...")
+        gcp_utils.rollback_uploaded_files(api_name, run_id, teams_response["uploaded_files"] + standings_response['uploaded_files'])
+        return
         
 if __name__ == "__main__":
     # For local testing purposes only
